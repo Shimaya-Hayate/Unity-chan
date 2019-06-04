@@ -1,1 +1,382 @@
 
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using UnityStandardAssets.Characters.ThirdPerson;
+using UnityStandardAssets.Cameras;
+
+public class GameManager : MonoBehaviour
+{
+
+    [System.NonSerialized]
+    public int currentStageNum = 0; //現在のステージ番号（0始まり）
+
+    [System.NonSerialized]
+    public bool countDown = false;
+
+    [SerializeField]
+    string[] stageName; //ステージ名
+
+    [SerializeField]
+    GameObject fadeCanvasPrefab;//フェード
+
+    [SerializeField]
+    GameObject gameOverCanvasPrefab;//ゲームオーバー
+
+    [SerializeField]
+    GameObject gameClearCanvasPrefab;//ゲームクリア
+
+    [SerializeField]
+    GameObject titleCanvasPrefab;//タイトル
+    
+    [SerializeField]
+    GameObject StageSelectCanvasPrefab;//ステージ選択
+
+    [SerializeField]
+    GameObject rankingCanvasPrefab;//ランキング
+
+    [System.NonSerialized]
+    public float time;//タイマー
+
+    [SerializeField]
+    float fadeWaitTime = 1.0f; //フェード時の待ち時間
+
+    GameObject fadeCanvasClone;
+    FadeCanvas fadeCanvas;
+
+    GameObject gameOverCanvasClone;
+    GameObject gameClearCanvasClone;
+    GameObject titleCanvas;
+    GameObject StageSelectCanvas;
+    GameObject rankingCanvas;
+
+    Ranking ranking;
+
+    ThirdPersonCharacter character;
+    FreeLookCam freeLookCam;
+    Rigidbody playerRigidbody;
+    Button[] buttons;
+    SoundManager soundManager;
+
+    private bool title;
+
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        //シーンを切り替えてもこのゲームオブジェクトを削除しないようにする
+        DontDestroyOnLoad(gameObject);
+
+        //デリゲートの登録
+        SceneManager.sceneLoaded += OnSceneLoaded;
+
+        //コンポーネントの取得
+        soundManager = GetComponent<SoundManager>();
+
+        LoadComponents();
+
+        if (currentStageNum == 0)
+        {
+            //1.0秒後に呼び出す
+            Invoke("NextStage", 1.0f);
+        }
+    }
+
+    //シーンのロード時に実行（最初は実行されない）
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        countDown = false;
+
+        LoadComponents();
+    }
+
+    //コンポーネントの取得
+    void LoadComponents()
+    {
+        //タイトル画面じゃないなら取得
+        if (currentStageNum != 0)
+        {
+            character = GameObject.FindGameObjectWithTag("Player").GetComponent<ThirdPersonCharacter>();
+            playerRigidbody = GameObject.FindGameObjectWithTag("Player").GetComponent<Rigidbody>();
+            if(currentStageNum != 1)
+                freeLookCam = GameObject.Find("FreeLookCameraRig").GetComponent<FreeLookCam>();
+        }
+    }
+
+
+    // Update is called once per frame
+    void Update()
+    {
+        
+    }
+
+    //次のステージに進む処理
+    public void NextStage()
+    {
+        Destroy(gameClearCanvasClone);
+
+        countDown = false;
+
+        int maxStageNum = stageName.Length - 1;
+
+        currentStageNum += 1;
+        
+        //最後のステージの場合、タイトルに戻る
+        if (currentStageNum > maxStageNum)
+        {
+            currentStageNum = 1;
+        }
+
+        //コルーチンを実行
+        StartCoroutine(WaitForLoadScene(currentStageNum));
+
+        //タイトル画面以外
+        /*if (currentStageNum != 1)
+        {
+            //SE再生
+            soundManager.RandomSE(SoundManager.SE_TYPE.START);
+
+            //BGM再生
+            soundManager.PlayBGM(1);
+        }
+        */
+    }
+
+    //任意のステージに移動する処理
+    public void MoveToStage(int stageNum)
+    {
+        Destroy(StageSelectCanvas);
+
+        currentStageNum = stageNum;
+        //コルーチンを実行
+        StartCoroutine(WaitForLoadScene(stageNum));
+    }
+
+    //シーンの読み込みと待機を行うコルーチン
+    IEnumerator WaitForLoadScene(int stageNum)
+    {
+        //タイトル画面じゃないならキャラを停止
+        if ((currentStageNum != 0) && (currentStageNum != 1))
+        {
+            character.enabled = false;
+            playerRigidbody.isKinematic = true;
+        }
+
+        //フェードオブジェクトを生成
+        fadeCanvasClone = Instantiate(fadeCanvasPrefab);
+
+        //コンポーネントを取得
+        fadeCanvas = fadeCanvasClone.GetComponent<FadeCanvas>();
+
+        //フェードインさせる
+        fadeCanvas.fadeIn = true;
+        yield return new WaitForSeconds(fadeWaitTime);
+
+        //シーンを非同期で読込し、読み込まれるまで待機する
+        yield return SceneManager.LoadSceneAsync(stageName[stageNum]);
+
+        //フェードアウトさせる
+        fadeCanvas.fadeOut = true;
+
+        //タイトル画面以外
+        if (stageNum != 1)
+        {
+            //SE再生
+            soundManager.RandomSE(SoundManager.SE_TYPE.START);
+
+            if (title)
+            {
+                //BGM再生
+                soundManager.PlayBGM(1);
+                title = false;
+            }
+        }
+
+        if (currentStageNum == 1)
+        {
+            Title();
+        }
+    }
+
+
+    //ゲームオーバー処理
+    public void GameOver()
+    {
+        countDown = false;
+
+        //キャラやカメラの移動を停止させる
+        character.enabled = false;
+        playerRigidbody.isKinematic = true;
+        freeLookCam.enabled = false;
+
+        //ゲームオーバー画面表示
+        gameOverCanvasClone = Instantiate(gameOverCanvasPrefab);
+
+        //SE再生
+        soundManager.RandomSE(SoundManager.SE_TYPE.GAMEOVER);
+
+        //ボタンを取得
+        buttons = gameOverCanvasClone.GetComponentsInChildren<Button>();
+
+        //ボタンにイベント設定
+        buttons[0].onClick.AddListener(Retry);
+        buttons[1].onClick.AddListener(Return);
+    }
+
+    //ゲームクリア処理
+    public void GameClear()
+    {
+        countDown = false;
+
+        //キャラやカメラの移動を停止させる
+        character.enabled = false;
+        playerRigidbody.isKinematic = true;
+        freeLookCam.enabled = false;
+
+        //ゲームクリア画面表示
+        gameClearCanvasClone = Instantiate(gameClearCanvasPrefab);
+
+        //SE再生
+        soundManager.RandomSE(SoundManager.SE_TYPE.CLEAR);
+
+        //ボタンを取得
+        buttons = gameClearCanvasClone.GetComponentsInChildren<Button>();
+
+        //ボタンにイベント設定
+        buttons[0].onClick.AddListener(NextStage);
+        buttons[1].onClick.AddListener(Retry);
+        buttons[2].onClick.AddListener(Return);
+
+        //ランキング更新
+        ranking = rankingCanvasPrefab.GetComponent<Ranking>();
+        ranking.newScore[currentStageNum - 2] = (int)time;
+        ranking.ScoreUpdate();
+    }
+
+    //リトライ
+    public void Retry()
+    {
+        Destroy(gameOverCanvasClone);
+        Destroy(gameClearCanvasClone);
+        MoveToStage(currentStageNum);
+    }
+
+    //最初のシーンに戻る
+    public void Return()
+    {
+        Destroy(gameOverCanvasClone);
+        Destroy(gameClearCanvasClone);
+        MoveToStage(1);
+    }
+
+    //ゲーム終了
+    public void ExitGame()
+    {
+        Destroy(titleCanvas);
+
+        //SE再生
+        soundManager.RandomSE(SoundManager.SE_TYPE.EXIT);
+
+        //2.0秒後に呼び出す
+        Invoke("Finish", 2.0f);
+    }
+
+    //アプリ終了
+    void Finish()
+    {
+        Application.Quit();
+
+    }
+
+    //操作方法とタイトル表示の切り替え
+    /*public void SwitchTitle(bool isTitle)
+    {
+        Canvas titleCanvas = GameObject.Find("Title Canvas").GetComponent<Canvas>();
+        Canvas howtoCanvas = GameObject.Find("HowtoPlay Canvas").GetComponent<Canvas>();
+
+        if (isTitle)
+        {
+            titleCanvas.enabled = true;
+            howtoCanvas.enabled = false;
+        }
+
+        else
+        {
+            titleCanvas.enabled = false;
+            howtoCanvas.enabled = true;
+        }
+    }
+    */
+
+    //タイトル画面処理
+    public void Title()
+    {
+        title = true;
+
+        //タイトル画面表示
+        titleCanvas = Instantiate(titleCanvasPrefab);
+
+        //ボタンを取得
+        buttons = titleCanvas.GetComponentsInChildren<Button>();
+
+        //ボタンにイベント設定
+        buttons[0].onClick.AddListener(StageSelect);
+        buttons[1].onClick.AddListener(ExitGame);
+
+        //BGM再生
+        soundManager.PlayBGM(0);
+    }
+
+    //ステージ選択画面
+    public void StageSelect()
+    {
+        Destroy(titleCanvas);
+        Destroy(rankingCanvas);
+
+        //ステージ選択画面表示
+        StageSelectCanvas = Instantiate(StageSelectCanvasPrefab);
+
+        //ボタンを取得
+        buttons = StageSelectCanvas.GetComponentsInChildren<Button>();
+
+        //ボタンにイベント設定
+        buttons[0].onClick.AddListener(Ranking);
+        buttons[1].onClick.AddListener(StageOne);
+        buttons[2].onClick.AddListener(StageTwo);
+        buttons[3].onClick.AddListener(StageThree);
+    }
+
+    //ランキング画面
+    public void Ranking()
+    {
+        Destroy(StageSelectCanvas);
+
+        //ランキング画面表示
+        rankingCanvas = Instantiate(rankingCanvasPrefab);
+
+        //ボタンを取得
+        buttons = rankingCanvas.GetComponentsInChildren<Button>();
+
+        //ボタンにイベント設定
+        buttons[0].onClick.AddListener(StageSelect);
+    }
+
+    //ステージ移動
+
+    public void StageOne()
+    {
+        MoveToStage(2);
+    }
+
+    public void StageTwo()
+    {
+        MoveToStage(3);
+    }
+
+    public void StageThree()
+    {
+        MoveToStage(4);
+    }
+}
